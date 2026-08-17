@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "pymupdf>=1.25",
     "pytesseract>=0.3.13",
+    "pyyaml>=6.0",
     "sentence-transformers>=3.0",
     "streamlit>=1.40",
     "torch>=2.5",
@@ -17,6 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+unstructured = ["unstructured>=0.16"]
+llamaparse = ["llama-parse>=0.5"]
+openai = ["openai>=1.0"]
+cohere = ["cohere>=5.0"]
+weaviate = ["weaviate-client>=4.9"]
+pinecone = ["pinecone>=5.0"]
+api = ["openai>=1.0", "cohere>=5.0", "llama-parse>=0.5", "weaviate-client>=4.9", "pinecone>=5.0"]
 
 [build-system]
 requires = ["hatchling"]

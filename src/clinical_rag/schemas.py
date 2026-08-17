@@ -9,6 +9,8 @@ class MediaType(str, Enum):
     md = "md"
     txt = "txt"
     json = "json"
+    xml = "xml"
+    nxml = "nxml"
 
 
 class ExtractionMethod(str, Enum):
@@ -29,6 +31,28 @@ class ParserProfile(str, Enum):
     text_only = "text_only"
     ocr_fallback = "ocr_fallback"
     ocr_all = "ocr_all"
+
+
+class ParserEngine(str, Enum):
+    pymupdf = "pymupdf"
+    unstructured = "unstructured"
+    llamaparse = "llamaparse"
+
+
+class EmbedProvider(str, Enum):
+    sentence_transformers = "sentence_transformers"
+    openai = "openai"
+    cohere = "cohere"
+
+
+class VectorStoreKind(str, Enum):
+    chroma = "chroma"
+    weaviate = "weaviate"
+    pinecone = "pinecone"
+
+
+class RetrievalMode(str, Enum):
+    dense = "dense"
 
 
 class LegalFlags(BaseModel):
@@ -126,18 +150,38 @@ class EmbedConfig(BaseModel):
     fallback_model_id: str = "BAAI/bge-small-en-v1.5"
     device: str = "auto"
     batch_size: int = Field(default=16, ge=1)
+    provider: EmbedProvider = EmbedProvider.sentence_transformers
 
 
 class ChromaConfig(BaseModel):
     persist_dir: str = "artifacts/indexes/chroma"
 
 
+class WeaviateConfig(BaseModel):
+    url: str = "http://localhost:8080"
+    api_key: str = ""
+    grpc_port: int = 50051
+
+
+class PineconeConfig(BaseModel):
+    api_key: str = ""
+    index_name: str = "ragroog"
+    cloud: str = "aws"
+    region: str = "us-east-1"
+
+
 class ParserConfig(BaseModel):
+    engine: ParserEngine = ParserEngine.pymupdf
     profile: ParserProfile = ParserProfile.ocr_fallback
     ocr_lang: str = "eng"
     ocr_dpi: int = 250
     min_chars: int = 50
     min_alnum_ratio: float = 0.3
+
+
+class RetrievalConfig(BaseModel):
+    mode: RetrievalMode = RetrievalMode.dense
+    top_k: int = Field(default=5, ge=1, le=50)
 
 
 class IngestJobConfig(BaseModel):
@@ -148,9 +192,11 @@ class IngestJobConfig(BaseModel):
     chunk: ChunkConfig = Field(default_factory=ChunkConfig)
     embed: EmbedConfig = Field(default_factory=EmbedConfig)
     chroma: ChromaConfig = Field(default_factory=ChromaConfig)
+    weaviate: WeaviateConfig = Field(default_factory=WeaviateConfig)
+    pinecone: PineconeConfig = Field(default_factory=PineconeConfig)
+    vector_store: VectorStoreKind = VectorStoreKind.chroma
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     smoke_query: SmokeQueryConfig = Field(default_factory=SmokeQueryConfig)
-    rationale_chunk: str = ""
-    rationale_embed: str = ""
 
 
 class SmokeHit(BaseModel):
@@ -172,12 +218,16 @@ class IngestReport(BaseModel):
     strategy_id: str
     embed_model_id: str
     embed_device: str = "auto"
+    embed_provider: str = EmbedProvider.sentence_transformers.value
+    parser_engine: str = ParserEngine.pymupdf.value
     parser_profile: str
+    vector_store: str = VectorStoreKind.chroma.value
+    retrieval_mode: str = RetrievalMode.dense.value
     page_count: int
     ocr_page_count: int
     chunk_count: int
     warnings: list[str] = Field(default_factory=list)
-    rationale: dict[str, str] = Field(default_factory=dict)
+    combo: dict = Field(default_factory=dict)
     rebuild_policy: str = (
         "Replace the target collection on each job so reruns are idempotent "
         "(same corpus/strategy/model name does not duplicate chunks)."

@@ -1,24 +1,48 @@
 from __future__ import annotations
 
+from clinical_rag.adapters.stores import VectorStore, build_store
 from clinical_rag.errors import IngestError
-from clinical_rag.indexing.chroma_store import ChromaStore
 from clinical_rag.indexing.embed import Embedder, assert_query_embedder_matches_index
-from clinical_rag.schemas import SmokeHit
+from clinical_rag.schemas import (
+    ChromaConfig,
+    PineconeConfig,
+    SmokeHit,
+    VectorStoreKind,
+    WeaviateConfig,
+)
 
 
 def run_smoke_query(
     *,
-    persist_dir: str,
     collection: str,
     embedder: Embedder,
     query: str,
     top_k: int,
     index_model_id: str | None = None,
+    vector_store: VectorStoreKind | str = VectorStoreKind.chroma,
+    persist_dir: str | None = None,
+    chroma: ChromaConfig | None = None,
+    weaviate: WeaviateConfig | None = None,
+    pinecone: PineconeConfig | None = None,
+    store: VectorStore | None = None,
 ) -> list[SmokeHit]:
-    store = ChromaStore(persist_dir)
-    resolved_model = index_model_id or store.index_embed_model_id(collection)
+    kind = (
+        vector_store
+        if isinstance(vector_store, VectorStoreKind)
+        else VectorStoreKind(str(vector_store))
+    )
+    chroma_cfg = chroma or ChromaConfig(persist_dir=persist_dir or "artifacts/indexes/chroma")
+    if persist_dir and chroma is None:
+        chroma_cfg = ChromaConfig(persist_dir=persist_dir)
+    resolved_store = store or build_store(
+        kind,
+        chroma=chroma_cfg,
+        weaviate=weaviate,
+        pinecone=pinecone,
+    )
+    resolved_model = index_model_id or resolved_store.index_embed_model_id(collection)
     if not resolved_model:
         raise IngestError(f"Collection {collection!r} has no embed_model_id metadata")
     assert_query_embedder_matches_index(embedder, resolved_model)
     vectors = embedder.encode([query])
-    return store.query(collection, vectors[0], top_k)
+    return resolved_store.query(collection, vectors[0], top_k)

@@ -47,6 +47,8 @@ def test_prechunked_passthrough_smoke(tmp_path: Path):
     )
     report, chunks = run_ingest(cfg, embedder=HashEmbedder(), jobs_dir=jobs)
     assert report.chunk_count == 5
+    assert report.combo["vector_store"] == "chroma"
+    assert "persist_dir" in report.combo["store"]
     assert all(c.strategy_id is StrategyId.passthrough for c in chunks)
     hits = run_smoke_query(
         persist_dir=str(persist),

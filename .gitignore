@@ -12,5 +12,11 @@ build/
 htmlcov/
 data/uploads/
 artifacts/
+data/eval/questions.jsonl
 *.log
 .DS_Store
+
+# Local agent handoff — do not commit
+docs/edits.md
+docs/streamlit-ui-implementation-contract.md
+configs/selected.yaml

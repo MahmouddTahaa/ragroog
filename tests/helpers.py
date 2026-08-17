@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from clinical_rag.parsing.router import media_type_for
 from clinical_rag.schemas import LegalFlags, RawDocument
 
 
@@ -33,11 +34,10 @@ def legal_ok() -> LegalFlags:
 
 
 def raw_doc(path: Path, *, doc_id: str = "doc", media=None) -> RawDocument:
-    suffix = path.suffix.lower().lstrip(".")
     return RawDocument(
         doc_id=doc_id,
         filename=path.name,
-        media_type=media or suffix,
+        media_type=media or media_type_for(path.name),
         document_name=path.stem,
         source_url="https://example.org/demo",
         path=str(path),
