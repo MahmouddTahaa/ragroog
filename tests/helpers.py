@@ -10,6 +10,8 @@ class HashEmbedder:
     """Deterministic stand-in so tests do not download bge-m3."""
 
     model_id = "hash-test"
+    device = "cpu"
+    warnings: list[str] = []
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []

@@ -54,6 +54,7 @@ def test_prechunked_passthrough_smoke(tmp_path: Path):
         embedder=HashEmbedder(),
         query=chunks[0].text,
         top_k=5,
+        index_model_id=report.embed_model_id,
     )
     assert len(hits) == 5
     assert hits[0].chunk_id == chunks[0].chunk_id

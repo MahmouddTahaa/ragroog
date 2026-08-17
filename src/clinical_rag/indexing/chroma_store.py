@@ -43,13 +43,36 @@ class ChromaStore:
             client.delete_collection(name)
         except Exception:
             pass
-        col = client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
+        col = client.get_or_create_collection(
+            name=name,
+            metadata={
+                "hnsw:space": "cosine",
+                "embed_model_id": chunks[0].embed_model_id if chunks else "",
+            },
+        )
         col.upsert(
             ids=[c.chunk_id for c in chunks],
             embeddings=embeddings,
             documents=[c.text for c in chunks],
             metadatas=[_meta(c) for c in chunks],
         )
+
+    def index_embed_model_id(self, name: str) -> str | None:
+        col = self._client_obj().get_collection(name)
+        collection_meta = col.metadata or {}
+        model_id = collection_meta.get("embed_model_id")
+        if model_id:
+            return str(model_id)
+        count = min(col.count(), 1)
+        if count == 0:
+            return None
+        raw = col.get(limit=count, include=["metadatas"])
+        metas = raw.get("metadatas") or []
+        if metas and metas[0]:
+            chunk_model = metas[0].get("embed_model_id")
+            if chunk_model:
+                return str(chunk_model)
+        return None
 
     def query(self, name: str, embedding: list[float], top_k: int) -> list[SmokeHit]:
         col = self._client_obj().get_collection(name)

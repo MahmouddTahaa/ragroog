@@ -84,6 +84,7 @@ def run_ingest(
 
     _progress(progress, "embed", f"Embedding {len(chunks)} chunks ({config.embed.model_id})")
     embedder = embedder or SentenceTransformerEmbedder(config.embed)
+    warnings.extend(getattr(embedder, "warnings", []))
     vectors = embedder.encode([c.text for c in chunks])
     for chunk in chunks:
         chunk.embed_model_id = embedder.model_id
@@ -99,6 +100,7 @@ def run_ingest(
         collection_name=name,
         strategy_id=config.chunk.strategy_id.value,
         embed_model_id=embedder.model_id,
+        embed_device=getattr(embedder, "device", "n/a"),
         parser_profile=config.parser.profile.value,
         page_count=page_count,
         ocr_page_count=ocr_page_count,

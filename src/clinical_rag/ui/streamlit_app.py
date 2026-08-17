@@ -1,23 +1,15 @@
 from __future__ import annotations
 
+import importlib
 import json
-import sys
 from pathlib import Path
-
-_SRC = Path(__file__).resolve().parents[2]
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 import streamlit as st
 
-from clinical_rag.config import (
-    DEFAULT_CHUNK_RATIONALE,
-    DEFAULT_EMBED_RATIONALE,
-    collection_name,
-    get_settings,
-    make_doc_id,
-    make_job_id,
-)
+# Streamlit hot-reload can keep a stale clinical_rag.config in sys.modules.
+import clinical_rag.config as config_module
+importlib.reload(config_module)
+
 from clinical_rag.errors import IngestError
 from clinical_rag.indexing.embed import SentenceTransformerEmbedder
 from clinical_rag.parsing.router import media_type_for
@@ -33,6 +25,14 @@ from clinical_rag.schemas import (
     RawDocument,
     StrategyId,
 )
+
+DEFAULT_CHUNK_RATIONALE = config_module.DEFAULT_CHUNK_RATIONALE
+DEFAULT_EMBED_RATIONALE = config_module.DEFAULT_EMBED_RATIONALE
+collection_name = config_module.collection_name
+get_settings = config_module.get_settings
+make_doc_id = config_module.make_doc_id
+make_job_id = config_module.make_job_id
+resolve_embed_config = config_module.resolve_embed_config
 
 st.set_page_config(page_title="Ragroog ingest", layout="wide")
 settings = get_settings()
@@ -51,9 +51,9 @@ def _load_report(job_dir: Path) -> dict:
 
 
 @st.cache_resource
-def _embedder(model_id: str, device: str, batch_size: int) -> SentenceTransformerEmbedder:
-    return SentenceTransformerEmbedder(
-        EmbedConfig(model_id=model_id, device=device, batch_size=batch_size)
+def _query_embedder(model_id: str, device: str, batch_size: int) -> SentenceTransformerEmbedder:
+    return SentenceTransformerEmbedder.for_index(
+        model_id, device=device, batch_size=batch_size
     )
 
 
@@ -96,6 +96,7 @@ with ingest_tab:
         names, urls = {}, {}
 
     st.subheader("Operator knobs")
+    resolved_embed, embed_hints = resolve_embed_config(settings.embed)
     k1, k2, k3 = st.columns(3)
     profile = k1.selectbox(
         "Parser profile",
@@ -110,8 +111,10 @@ with ingest_tab:
     embed_model = k3.selectbox(
         "Embed model",
         options=["BAAI/bge-m3", "BAAI/bge-small-en-v1.5"],
-        index=0 if settings.embed.model_id == "BAAI/bge-m3" else 1,
+        index=0 if resolved_embed.model_id == "BAAI/bge-m3" else 1,
     )
+    if embed_hints:
+        st.caption("Auto embed: " + "; ".join(embed_hints))
     p1, p2, p3 = st.columns(3)
     target_tokens = p1.number_input("target_tokens", 64, 2000, settings.chunk.target_tokens)
     overlap = p2.number_input(
@@ -231,13 +234,21 @@ with smoke_tab:
     if selected and st.button("Run smoke query") and query.strip():
         report = _load_report(JOBS / selected)
         try:
-            embedder = _embedder(report["embed_model_id"], settings.embed.device, settings.embed.batch_size)
+            index_model = report["embed_model_id"]
+            index_device = report.get("embed_device") or settings.embed.device
+            embedder = _query_embedder(
+                index_model,
+                index_device,
+                settings.embed.batch_size,
+            )
+            st.caption(f"Query embed: {embedder.model_id} on {embedder.device}")
             hits = run_smoke_query(
                 persist_dir=settings.chroma.persist_dir,
                 collection=report["collection_name"],
                 embedder=embedder,
                 query=query.strip(),
                 top_k=int(top_k),
+                index_model_id=index_model,
             )
         except Exception as exc:
             st.error(str(exc))

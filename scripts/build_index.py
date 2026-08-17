@@ -94,13 +94,18 @@ def main() -> None:
     print(report.model_dump_json(indent=2))
     query = args.smoke_query.strip()
     if query:
-        embedder = SentenceTransformerEmbedder(config.embed)
+        embedder = SentenceTransformerEmbedder.for_index(
+            report.embed_model_id,
+            device=report.embed_device,
+            batch_size=settings.embed.batch_size,
+        )
         hits = run_smoke_query(
             persist_dir=config.chroma.persist_dir,
             collection=report.collection_name,
             embedder=embedder,
             query=query,
             top_k=args.top_k or settings.smoke_query.top_k,
+            index_model_id=report.embed_model_id,
         )
         for hit in hits:
             print(f"{hit.score:.3f}\t{hit.chunk_id}\t{hit.document_name}\t{hit.section_title}\tp{hit.page_number}")

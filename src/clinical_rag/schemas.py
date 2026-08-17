@@ -171,6 +171,7 @@ class IngestReport(BaseModel):
     collection_name: str
     strategy_id: str
     embed_model_id: str
+    embed_device: str = "auto"
     parser_profile: str
     page_count: int
     ocr_page_count: int
