@@ -12,21 +12,10 @@ from clinical_rag.schemas import (
     ChunkConfig,
     EmbedConfig,
     ParserConfig,
+    PineconeConfig,
     SmokeQueryConfig,
-)
-
-DEFAULT_CHUNK_RATIONALE = (
-    "Section-aware packing at ~400 tokens with ~12% overlap matches the Day 1 "
-    "start band (300–500 tokens, 10–15% overlap). Headings stay on chunks so "
-    "citations can name a section without a later retrofit, and windows stay "
-    "small enough for local dense retrieval."
-)
-
-DEFAULT_EMBED_RATIONALE = (
-    "BAAI/bge-m3 runs locally via sentence-transformers (no API key), is "
-    "multilingual enough for mixed English/Arabic corpora later, and the smoke "
-    "query uses the same model as the index. Operators can switch to "
-    "BAAI/bge-small-en-v1.5 if memory is tight."
+    VectorStoreKind,
+    WeaviateConfig,
 )
 
 
@@ -41,7 +30,10 @@ class Settings(BaseSettings):
     parser: ParserConfig = ParserConfig()
     chunk: ChunkConfig = ChunkConfig()
     embed: EmbedConfig = EmbedConfig()
+    vector_store: VectorStoreKind = VectorStoreKind.chroma
     chroma: ChromaConfig = ChromaConfig()
+    weaviate: WeaviateConfig = WeaviateConfig()
+    pinecone: PineconeConfig = PineconeConfig()
     uploads_dir: Path = Path("data/uploads")
     jobs_dir: Path = Path("artifacts/jobs")
 
@@ -49,6 +41,12 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def store_kwargs(settings: Settings | None = None) -> dict:
+    """Connection configs for build_store / smoke query (no secrets logged here)."""
+    cfg = settings or get_settings()
+    return {"chroma": cfg.chroma, "weaviate": cfg.weaviate, "pinecone": cfg.pinecone}
 
 
 def make_job_id() -> str:
@@ -138,5 +136,6 @@ def resolve_embed_config(cfg: EmbedConfig) -> tuple[EmbedConfig, list[str]]:
         fallback_model_id=cfg.fallback_model_id,
         device=device,
         batch_size=batch_size,
+        provider=cfg.provider,
     )
     return resolved, warnings

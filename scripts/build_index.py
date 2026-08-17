@@ -10,12 +10,12 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from clinical_rag.config import get_settings, make_doc_id, make_job_id
+from clinical_rag.adapters.embedders import embedder_for_index
+from clinical_rag.config import get_settings, make_doc_id, make_job_id, store_kwargs
 from clinical_rag.errors import IngestError
 from clinical_rag.parsing.router import media_type_for
 from clinical_rag.pipeline.ingest import run_ingest
 from clinical_rag.pipeline.smoke_query import run_smoke_query
-from clinical_rag.indexing.embed import SentenceTransformerEmbedder
 from clinical_rag.schemas import (
     ChunkConfig,
     EmbedConfig,
@@ -25,16 +25,23 @@ from clinical_rag.schemas import (
     ParserProfile,
     RawDocument,
     StrategyId,
+    VectorStoreKind,
 )
 
 
 def _args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Build a Chroma index from local files")
+    p = argparse.ArgumentParser(description="Build a vector index from local files")
     p.add_argument("files", nargs="+", type=Path)
     p.add_argument("--corpus-id", default="demo")
     p.add_argument("--strategy", default="section_aware", choices=[s.value for s in StrategyId])
     p.add_argument("--parser-profile", default="ocr_fallback", choices=[p.value for p in ParserProfile])
     p.add_argument("--embed-model", default="BAAI/bge-m3")
+    p.add_argument(
+        "--vector-store",
+        choices=[v.value for v in VectorStoreKind],
+        default=None,
+        help="Override VECTOR_STORE from .env (chroma | weaviate | pinecone)",
+    )
     p.add_argument("--source-url", default="")
     p.add_argument("--confirm-legal", action="store_true", help="Attest all four legal flags")
     p.add_argument("--smoke-query", default="")
@@ -73,6 +80,9 @@ def main() -> None:
                 legal=legal,
             )
         )
+    vector_store = (
+        VectorStoreKind(args.vector_store) if args.vector_store else settings.vector_store
+    )
     config = IngestJobConfig(
         corpus_id=args.corpus_id,
         job_id=make_job_id(),
@@ -81,6 +91,9 @@ def main() -> None:
         chunk=ChunkConfig(strategy_id=StrategyId(args.strategy)),
         embed=EmbedConfig(model_id=args.embed_model, device=settings.embed.device),
         chroma=settings.chroma,
+        weaviate=settings.weaviate,
+        pinecone=settings.pinecone,
+        vector_store=vector_store,
         smoke_query=settings.smoke_query,
     )
     try:
@@ -94,10 +107,12 @@ def main() -> None:
     print(report.model_dump_json(indent=2))
     query = args.smoke_query.strip()
     if query:
-        embedder = SentenceTransformerEmbedder.for_index(
-            report.embed_model_id,
+        embedder = embedder_for_index(
+            model_id=report.embed_model_id,
+            provider=report.embed_provider,
             device=report.embed_device,
             batch_size=settings.embed.batch_size,
+            purpose="query",
         )
         hits = run_smoke_query(
             persist_dir=config.chroma.persist_dir,
@@ -106,6 +121,8 @@ def main() -> None:
             query=query,
             top_k=args.top_k or settings.smoke_query.top_k,
             index_model_id=report.embed_model_id,
+            vector_store=report.vector_store,
+            **store_kwargs(settings),
         )
         for hit in hits:
             print(f"{hit.score:.3f}\t{hit.chunk_id}\t{hit.document_name}\t{hit.section_title}\tp{hit.page_number}")

@@ -4,23 +4,21 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from clinical_rag.adapters.embedders import build_embedder
+from clinical_rag.adapters.parsers import parse_with_engine
+from clinical_rag.adapters.stores import build_store
 from clinical_rag.chunking import chunk_parsed
 from clinical_rag.chunking.base import stamp_prechunked
-from clinical_rag.config import (
-    DEFAULT_CHUNK_RATIONALE,
-    DEFAULT_EMBED_RATIONALE,
-    collection_name,
-)
+from clinical_rag.config import collection_name
 from clinical_rag.errors import IngestError
-from clinical_rag.indexing.chroma_store import ChromaStore
-from clinical_rag.indexing.embed import Embedder, SentenceTransformerEmbedder
-from clinical_rag.parsing.router import parse_document
+from clinical_rag.indexing.embed import Embedder
 from clinical_rag.schemas import (
     Chunk,
     ExtractionMethod,
     IngestJobConfig,
     IngestReport,
     StrategyId,
+    VectorStoreKind,
 )
 
 ProgressFn = Callable[[str, str], None]
@@ -29,6 +27,45 @@ ProgressFn = Callable[[str, str], None]
 def _progress(fn: ProgressFn | None, stage: str, message: str) -> None:
     if fn:
         fn(stage, message)
+
+
+def _store_connection(config: IngestJobConfig) -> dict:
+    kind = config.vector_store
+    if kind is VectorStoreKind.chroma:
+        return {"persist_dir": config.chroma.persist_dir}
+    if kind is VectorStoreKind.weaviate:
+        return {"url": config.weaviate.url, "grpc_port": config.weaviate.grpc_port}
+    return {
+        "index_name": config.pinecone.index_name,
+        "cloud": config.pinecone.cloud,
+        "region": config.pinecone.region,
+    }
+
+
+def combo_from_config(config: IngestJobConfig, *, embed_model_id: str, embed_device: str) -> dict:
+    return {
+        "parser_engine": config.parser.engine.value,
+        "parser_profile": config.parser.profile.value,
+        "chunk": {
+            "strategy_id": config.chunk.strategy_id.value,
+            "target_tokens": config.chunk.target_tokens,
+            "overlap_ratio": config.chunk.overlap_ratio,
+            "parent_tokens": config.chunk.parent_tokens,
+            "child_tokens": config.chunk.child_tokens,
+            "max_tokens": config.chunk.max_tokens,
+        },
+        "embed": {
+            "provider": config.embed.provider.value,
+            "model_id": embed_model_id,
+            "device": embed_device,
+        },
+        "vector_store": config.vector_store.value,
+        "store": _store_connection(config),
+        "retrieval": {
+            "mode": config.retrieval.mode.value,
+            "top_k": config.retrieval.top_k,
+        },
+    }
 
 
 def run_ingest(
@@ -55,8 +92,8 @@ def run_ingest(
     ocr_page_count = 0
 
     for raw in config.files:
-        _progress(progress, "parse", f"Parsing {raw.filename}")
-        outcome = parse_document(raw, config.parser, cache_dir)
+        _progress(progress, "parse", f"Parsing {raw.filename} ({config.parser.engine.value})")
+        outcome = parse_with_engine(raw, config.parser, cache_dir)
         warnings.extend(outcome.warnings)
         if outcome.prechunked is not None:
             if config.chunk.strategy_id is not StrategyId.passthrough:
@@ -83,33 +120,41 @@ def run_ingest(
         raise IngestError("No chunks produced")
 
     _progress(progress, "embed", f"Embedding {len(chunks)} chunks ({config.embed.model_id})")
-    embedder = embedder or SentenceTransformerEmbedder(config.embed)
+    embedder = embedder or build_embedder(config.embed)
     warnings.extend(getattr(embedder, "warnings", []))
     vectors = embedder.encode([c.text for c in chunks])
     for chunk in chunks:
         chunk.embed_model_id = embedder.model_id
 
     name = collection_name(config.corpus_id, config.chunk.strategy_id.value, embedder.model_id)
-    _progress(progress, "store", f"Writing collection {name}")
-    store = ChromaStore(config.chroma.persist_dir)
+    _progress(progress, "store", f"Writing collection {name} ({config.vector_store.value})")
+    store = build_store(
+        config.vector_store,
+        chroma=config.chroma,
+        weaviate=config.weaviate,
+        pinecone=config.pinecone,
+    )
     store.replace(name, chunks, vectors)
 
+    embed_device = getattr(embedder, "device", "n/a")
+    combo = combo_from_config(config, embed_model_id=embedder.model_id, embed_device=embed_device)
     report = IngestReport(
         job_id=config.job_id,
         corpus_id=config.corpus_id,
         collection_name=name,
         strategy_id=config.chunk.strategy_id.value,
         embed_model_id=embedder.model_id,
-        embed_device=getattr(embedder, "device", "n/a"),
+        embed_device=embed_device,
+        embed_provider=config.embed.provider.value,
+        parser_engine=config.parser.engine.value,
         parser_profile=config.parser.profile.value,
+        vector_store=config.vector_store.value,
+        retrieval_mode=config.retrieval.mode.value,
         page_count=page_count,
         ocr_page_count=ocr_page_count,
         chunk_count=len(chunks),
         warnings=warnings,
-        rationale={
-            "chunk": config.rationale_chunk or DEFAULT_CHUNK_RATIONALE,
-            "embed": config.rationale_embed or DEFAULT_EMBED_RATIONALE,
-        },
+        combo=combo,
     )
     (job_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     payload = [c.model_dump(mode="json") for c in chunks]

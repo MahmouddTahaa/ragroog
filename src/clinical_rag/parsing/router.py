@@ -9,6 +9,7 @@ from clinical_rag.parsing.json_doc import parse_raw_json
 from clinical_rag.parsing.json_prechunked import is_prechunked_payload, load_prechunked
 from clinical_rag.parsing.pdf_pymupdf import parse_pdf
 from clinical_rag.parsing.text_plain import parse_plain
+from clinical_rag.parsing.xml_doc import parse_xml
 from clinical_rag.schemas import MediaType, ParserConfig, RawDocument
 
 _SUFFIX = {
@@ -16,6 +17,8 @@ _SUFFIX = {
     ".md": MediaType.md,
     ".txt": MediaType.txt,
     ".json": MediaType.json,
+    ".xml": MediaType.xml,
+    ".nxml": MediaType.nxml,
 }
 
 
@@ -33,6 +36,9 @@ def parse_document(raw: RawDocument, parser: ParserConfig, cache_dir: Path | Non
         return ParseOutcome(parsed=parsed, warnings=list(parsed.warnings))
     if suffix in {".md", ".txt"}:
         parsed = parse_plain(raw)
+        return ParseOutcome(parsed=parsed)
+    if suffix in {".xml", ".nxml"}:
+        parsed = parse_xml(raw)
         return ParseOutcome(parsed=parsed)
     if suffix == ".json":
         try:
