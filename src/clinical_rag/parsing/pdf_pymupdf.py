@@ -4,6 +4,7 @@ import statistics
 from pathlib import Path
 
 from clinical_rag.errors import IngestError
+from clinical_rag.parsing.cleanup import strip_repeating_headers_footers
 from clinical_rag.parsing.pdf_ocr_tesseract import ocr_page, tesseract_available
 from clinical_rag.parsing.quality import needs_ocr
 from clinical_rag.schemas import (
@@ -114,7 +115,7 @@ def parse_pdf(raw: RawDocument, parser: ParserConfig, cache_dir: Path | None) ->
         if any(needs_ocr(p.text, parser.min_chars, parser.min_alnum_ratio) for p in pages):
             warnings.append("tesseract not found; weak pages kept as digital text")
 
-    return ParsedDocument(
+    parsed = ParsedDocument(
         doc_id=raw.doc_id,
         document_name=raw.document_name,
         source_url=raw.source_url,
@@ -123,3 +124,4 @@ def parse_pdf(raw: RawDocument, parser: ParserConfig, cache_dir: Path | None) ->
         pages=pages,
         warnings=warnings,
     )
+    return strip_repeating_headers_footers(parsed)
